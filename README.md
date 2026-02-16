@@ -29,7 +29,9 @@ All LR3 entities plus:
 
 ### Pet Profiles
 - **Weight sensor** with full profile attributes (breed, age, birthday, diet, gender, health info)
-- **Visits today** sensor (daily litter box visit count)
+- **Visit sensors**: Today, this week, this month, this year (timezone-aware)
+- **Weight history** sensor with recent readings in attributes
+- **Profile sensors**: Type, gender, age, birthday, adoption date, diet, environment, fixed/neutered, health
 
 ## Known Behavior
 
@@ -67,6 +69,21 @@ While the manual installation above seems like less steps, it's important to not
 1. In Home Assistant, go to **Settings** > **Devices & Services** > **Add Integration**
 2. Search for **Litter-Robot** and follow the setup flow
 3. Enter your Whisker account credentials (same as the Whisker app)
+
+## Example Dashboard
+
+An example Whisker dashboard template is provided in [`examples/whisker_dashboard.yaml`](examples/whisker_dashboard.yaml). It uses [lovelace_gen](https://github.com/thomasloven/hass-lovelace_gen) for Jinja2 variable support and [fold-entity-row](https://github.com/thomasloven/lovelace-fold-entity-row) for collapsible sections. Edit the three variables at the top to match your device and pet names:
+
+```yaml
+{% set robots = ["my_litter_robot"] %}
+{% set feeders = ["my_feeder"] %}
+{% set pets = ["my_cat", "my_other_cat"] %}
+```
+
+- Supports multiple litter boxes, feeders, and pets
+- 3 tabs: Litter-Robot, Feeder, Pets
+- Each device/pet gets a card with collapsible sub-sections (Status, Actions, Controls, etc.)
+- See the file header for full setup instructions
 
 ---
 

@@ -1,0 +1,288 @@
+# lovelace_gen
+#
+# Whisker Dashboard Template (lovelace_gen + fold-entity-row)
+#
+# Prerequisites:
+#   1. Install lovelace_gen via HACS (https://github.com/thomasloven/hass-lovelace_gen)
+#   2. Install fold-entity-row via HACS (https://github.com/thomasloven/lovelace-fold-entity-row)
+#      Or manually: download fold-entity-row.js to your www/ folder and add as a resource
+#   3. Add to configuration.yaml:
+#        lovelace_gen:
+#        lovelace:
+#          mode: yaml
+#          resources:
+#            - url: /local/fold-entity-row.js
+#              type: module
+#          dashboards:
+#            lovelace-whisker:
+#              mode: yaml
+#              title: Whisker
+#              icon: mdi:cat
+#              show_in_sidebar: true
+#              filename: dashboards/whisker.yaml
+#   4. Restart Home Assistant
+#   5. Copy this file to your dashboards/ directory (matching the filename above)
+#   6. Update the variables below to match your device/pet names
+#
+# Finding your entity names:
+#   Entity IDs are based on your device names in the Whisker app.
+#   Go to Settings > Devices & Services > Litter-Robot to see your entities.
+#   The prefix is your device name lowercased with spaces replaced by underscores.
+#   Example: "My Litter-Robot" -> "my_litter_robot"
+#
+# Supports multiple litter boxes, feeders, and pets.
+# Each device/pet is a card with collapsible sub-sections.
+#
+
+# ── Variables ── Edit these to match your setup ──
+{% set robots = ["my_litter_robot"] %}
+{% set feeders = ["my_feeder"] %}
+{% set pets = ["my_cat", "my_other_cat"] %}
+
+title: Whisker
+views:
+  - title: Litter-Robot
+    type: sections
+    sections:
+{% for robot in robots %}
+      - type: grid
+        cards:
+          - type: entities
+            title: "{{ robot | replace('_', ' ') | title }}"
+            show_header_toggle: false
+            entities:
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Status
+                entities:
+                  - entity: sensor.{{ robot }}_waste_drawer
+                    name: Waste Drawer
+                  - entity: sensor.{{ robot }}_litter_level
+                    name: Litter Level
+                  - entity: sensor.{{ robot }}_last_pet_weight
+                    name: Last Pet Weight
+                  - entity: sensor.{{ robot }}_total_clean_cycles
+                    name: Total Clean Cycles
+                  - entity: sensor.{{ robot }}_total_scoops_saved
+                    name: Total Scoops Saved
+                  - entity: sensor.{{ robot }}_sound_volume
+                    name: Sound Volume
+                  - entity: sensor.{{ robot }}_wifi_signal
+                    name: WiFi Signal
+                  - entity: binary_sensor.{{ robot }}_online
+                    name: Online
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Actions
+                entities:
+                  - entity: button.{{ robot }}_clean_cycle
+                    name: Clean Cycle
+                  - entity: button.{{ robot }}_recalibrate
+                    name: Recalibrate
+                  - entity: button.{{ robot }}_reset_waste_drawer
+                    name: Reset Waste Drawer
+                  - entity: button.{{ robot }}_change_filter
+                    name: Change Filter
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Controls
+                entities:
+                  - entity: select.{{ robot }}_wait_time
+                    name: Wait Time
+                  - entity: switch.{{ robot }}_panel_lockout
+                    name: Panel Lockout
+                  - entity: select.{{ robot }}_panel_brightness
+                    name: Panel Brightness
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Night Light
+                entities:
+                  - entity: select.{{ robot }}_night_light_mode
+                    name: Mode
+                  - entity: number.{{ robot }}_night_light_brightness
+                    name: Brightness
+                  - entity: text.{{ robot }}_night_light_color
+                    name: Color
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Sleep Schedule
+                entities:
+                  - type: section
+                    label: Weekday
+                  - entity: switch.{{ robot }}_sleep_mode_weekday
+                    name: Enabled
+                  - entity: time.{{ robot }}_sleep_start_weekday
+                    name: Start Time
+                  - entity: time.{{ robot }}_sleep_end_weekday
+                    name: End Time
+                  - type: section
+                    label: Weekend
+                  - entity: switch.{{ robot }}_sleep_mode_weekend
+                    name: Enabled
+                  - entity: time.{{ robot }}_sleep_start_weekend
+                    name: Start Time
+                  - entity: time.{{ robot }}_sleep_end_weekend
+                    name: End Time
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Alerts
+                entities:
+                  - entity: binary_sensor.{{ robot }}_drawer_removed
+                    name: Drawer Removed
+                  - entity: binary_sensor.{{ robot }}_bonnet_removed
+                    name: Bonnet Removed
+                  - entity: binary_sensor.{{ robot }}_laser_dirty
+                    name: Laser Dirty
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Diagnostics
+                entities:
+                  - entity: sensor.{{ robot }}_firmware
+                    name: Firmware
+                  - entity: sensor.{{ robot }}_power_status
+                    name: Power Status
+                  - entity: sensor.{{ robot }}_privacy_mode
+                    name: Privacy Mode
+                  - entity: sensor.{{ robot }}_cat_detect_status
+                    name: Cat Detect Status
+                  - entity: sensor.{{ robot }}_last_cloud_check_in
+                    name: Last Cloud Check-in
+                  - entity: sensor.{{ robot }}_setup_date
+                    name: Setup Date
+                  - entity: sensor.{{ robot }}_next_filter_replacement
+                    name: Next Filter Replacement
+                  - entity: sensor.{{ robot }}_cycles_since_reset
+                    name: Cycles Since Reset
+                  - entity: sensor.{{ robot }}_drawer_empty_cycles
+                    name: Drawer Empty Cycles
+                  - entity: sensor.{{ robot }}_filter_change_cycles
+                    name: Filter Change Cycles
+                  - entity: sensor.{{ robot }}_power_cycles
+                    name: Power Cycles
+                  - entity: sensor.{{ robot }}_hopper_status
+                    name: Hopper Status
+                  - entity: sensor.{{ robot }}_motor_fault_status
+                    name: Motor Fault Status
+                  - entity: sensor.{{ robot }}_pinch_status
+                    name: Pinch Status
+                  - entity: sensor.{{ robot }}_firmware_update_status
+                    name: Firmware Update Status
+                  - entity: sensor.{{ robot }}_mcu_update_status
+                    name: MCU Update Status
+                  - entity: binary_sensor.{{ robot }}_smart_weight
+                    name: Smart Weight
+                  - entity: binary_sensor.{{ robot }}_camera_audio
+                    name: Camera Audio
+                  - entity: sensor.{{ robot }}_sleep_mode_start_time
+                    name: Sleep Mode Start Time
+                  - entity: sensor.{{ robot }}_sleep_mode_end_time
+                    name: Sleep Mode End Time
+{% endfor %}
+
+  - title: Feeder
+    type: sections
+    sections:
+{% for feeder in feeders %}
+      - type: grid
+        cards:
+          - type: entities
+            title: "{{ feeder | replace('_', ' ') | title }}"
+            show_header_toggle: false
+            entities:
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Status
+                entities:
+                  - entity: sensor.{{ feeder }}_food_level
+                    name: Food Level
+                  - entity: sensor.{{ feeder }}_food_dispensed_today
+                    name: Dispensed Today
+                  - entity: sensor.{{ feeder }}_last_feeding
+                    name: Last Feeding
+                  - entity: sensor.{{ feeder }}_next_feeding
+                    name: Next Feeding
+                  - entity: binary_sensor.{{ feeder }}_online
+                    name: Online
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Actions
+                entities:
+                  - entity: button.{{ feeder }}_give_snack
+                    name: Give Snack
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Controls
+                entities:
+                  - entity: select.{{ feeder }}_meal_insert_size
+                    name: Meal Insert Size
+                  - entity: switch.{{ feeder }}_night_light_mode
+                    name: Night Light
+                  - entity: switch.{{ feeder }}_panel_lockout
+                    name: Panel Lockout
+                  - entity: switch.{{ feeder }}_gravity_mode
+                    name: Gravity Mode
+{% endfor %}
+
+  - title: Pets
+    type: sections
+    sections:
+{% for pet in pets %}
+      - type: grid
+        cards:
+          - type: entities
+            title: "{{ pet | replace('_', ' ') | title }}"
+            show_header_toggle: false
+            entities:
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Activity
+                entities:
+                  - entity: sensor.{{ pet }}_weight
+                    name: Weight
+                  - entity: sensor.{{ pet }}_visits_today
+                    name: Visits Today
+                  - entity: sensor.{{ pet }}_visits_this_week
+                    name: Visits This Week
+                  - entity: sensor.{{ pet }}_visits_this_month
+                    name: Visits This Month
+                  - entity: sensor.{{ pet }}_visits_this_year
+                    name: Visits This Year
+                  - entity: sensor.{{ pet }}_weight_history
+                    name: Weight History
+              - type: custom:fold-entity-row
+                head:
+                  type: section
+                  label: Profile
+                entities:
+                  - entity: sensor.{{ pet }}_profile
+                    name: Breed
+                  - entity: sensor.{{ pet }}_type
+                    name: Type
+                  - entity: sensor.{{ pet }}_gender
+                    name: Gender
+                  - entity: sensor.{{ pet }}_age
+                    name: Age
+                  - entity: sensor.{{ pet }}_birthday
+                    name: Birthday
+                  - entity: sensor.{{ pet }}_adoption_date
+                    name: Adoption Date
+                  - entity: sensor.{{ pet }}_diet
+                    name: Diet
+                  - entity: sensor.{{ pet }}_environment
+                    name: Environment
+                  - entity: sensor.{{ pet }}_fixed
+                    name: Fixed/Neutered
+                  - entity: sensor.{{ pet }}_health
+                    name: Health
+{% endfor %}
