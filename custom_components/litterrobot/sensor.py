@@ -1,24 +1,38 @@
 """Support for Litter-Robot sensors."""
 from __future__ import annotations
 
-from typing import Callable
-
-from pylitterbot.robot import Robot
-
-from datetime import datetime, timezone
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from typing import Any
 
 from pylitterbot import Pet
+from pylitterbot.robot import Robot
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+from homeassistant.const import (
+    EntityCategory,
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .entity import LitterRobotEntity, is_litter_robot, is_feeder_robot, is_lr5
+from .entity import (
+    LitterRobotEntity,
+    LitterRobotEntityDescription,
+    is_litter_robot,
+    is_feeder_robot,
+    is_lr5,
+)
 from .hub import LitterRobotHub
 
 
@@ -33,220 +47,452 @@ def icon_for_gauge_level(gauge_level: int | None = None, offset: int = 0) -> str
     return "mdi:gauge-low"
 
 
-class LitterRobotPropertySensor(LitterRobotEntity, SensorEntity):
-    """Litter-Robot property sensor."""
+def _wifi_icon(rssi: Any) -> str:
+    """Return WiFi signal strength icon."""
+    if rssi is None or rssi == 0:
+        return "mdi:wifi-off"
+    if rssi >= -50:
+        return "mdi:wifi-strength-4"
+    if rssi >= -60:
+        return "mdi:wifi-strength-3"
+    if rssi >= -70:
+        return "mdi:wifi-strength-2"
+    return "mdi:wifi-strength-1"
+
+
+def _volume_icon(vol: Any) -> str:
+    """Return volume icon."""
+    if vol is None or vol == 0:
+        return "mdi:volume-off"
+    if vol < 50:
+        return "mdi:volume-medium"
+    return "mdi:volume-high"
+
+
+# --- Robot Sensor Descriptions ---
+
+
+@dataclass(frozen=True, kw_only=True)
+class LitterRobotSensorDescription(
+    SensorEntityDescription, LitterRobotEntityDescription
+):
+    """Describes a Litter-Robot sensor."""
+
+    value_fn: Callable[[Robot], Any] | None = None
+    icon_fn: Callable[[Any], str] | None = None
+
+
+ROBOT_SENSOR_DESCRIPTIONS: tuple[LitterRobotSensorDescription, ...] = (
+    LitterRobotSensorDescription(
+        key="waste_drawer",
+        entity_type="Waste Drawer",
+        robot_attr="waste_drawer_level",
+        native_unit_of_measurement=PERCENTAGE,
+        icon_fn=lambda v: icon_for_gauge_level(v, 10),
+    ),
+    LitterRobotSensorDescription(
+        key="litter_level",
+        entity_type="Litter Level",
+        robot_attr="litter_level",
+        native_unit_of_measurement=PERCENTAGE,
+        model_filter=is_lr5,
+        icon_fn=icon_for_gauge_level,
+    ),
+    LitterRobotSensorDescription(
+        key="total_clean_cycles",
+        entity_type="Total Clean Cycles",
+        robot_attr="cycle_count",
+        icon="mdi:counter",
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="last_pet_weight",
+        entity_type="Last Pet Weight",
+        robot_attr="pet_weight",
+        native_unit_of_measurement="lbs",
+        icon="mdi:scale",
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="wifi_signal",
+        entity_type="WiFi Signal",
+        robot_attr="wifi_rssi",
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        model_filter=is_lr5,
+        icon_fn=_wifi_icon,
+    ),
+    LitterRobotSensorDescription(
+        key="sound_volume",
+        entity_type="Sound Volume",
+        robot_attr="sound_volume",
+        native_unit_of_measurement="%",
+        model_filter=is_lr5,
+        icon_fn=_volume_icon,
+    ),
+    LitterRobotSensorDescription(
+        key="firmware",
+        entity_type="Firmware",
+        robot_attr="firmware",
+        icon="mdi:chip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="total_scoops_saved",
+        entity_type="Total Scoops Saved",
+        robot_attr="scoops_saved_count",
+        icon="mdi:hand-heart",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="next_filter_replacement",
+        entity_type="Next Filter Replacement",
+        robot_attr="next_filter_replacement_date",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="setup_date",
+        entity_type="Setup Date",
+        robot_attr="setup_date",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="last_cloud_checkin",
+        entity_type="Last Cloud Check-in",
+        robot_attr="last_seen",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="drawer_empty_cycles",
+        entity_type="Drawer Empty Cycles",
+        robot_attr="odometer_empty_cycles",
+        icon="mdi:counter",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="filter_change_cycles",
+        entity_type="Filter Change Cycles",
+        robot_attr="odometer_filter_cycles",
+        icon="mdi:counter",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="power_cycles",
+        entity_type="Power Cycles",
+        robot_attr="odometer_power_cycles",
+        icon="mdi:counter",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="cycles_since_reset",
+        entity_type="Cycles Since Reset",
+        robot_attr="last_reset_odometer_clean_cycles",
+        icon="mdi:counter",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotSensorDescription(
+        key="hopper_status",
+        entity_type="Hopper Status",
+        robot_attr="hopper_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+        value_fn=lambda r: str(r.hopper_status) if r.hopper_status is not None else None,
+    ),
+    LitterRobotSensorDescription(
+        key="motor_fault_status",
+        entity_type="Motor Fault Status",
+        robot_attr="globe_motor_fault_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+        value_fn=lambda r: str(r.globe_motor_fault_status) if r.globe_motor_fault_status is not None else None,
+    ),
+    LitterRobotSensorDescription(
+        key="pinch_status",
+        entity_type="Pinch Status",
+        robot_attr="pinch_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+        value_fn=lambda r: str(r.pinch_status) if r.pinch_status is not None else None,
+    ),
+    LitterRobotSensorDescription(
+        key="cat_detect_status",
+        entity_type="Cat Detect Status",
+        robot_attr="cat_detect",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+        value_fn=lambda r: str(r.cat_detect) if r.cat_detect is not None else None,
+    ),
+    LitterRobotSensorDescription(
+        key="firmware_update_status",
+        entity_type="Firmware Update Status",
+        robot_attr="firmware_update_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+        value_fn=lambda r: str(r.firmware_update_status) if r.firmware_update_status is not None else None,
+    ),
+    LitterRobotSensorDescription(
+        key="mcu_update_status",
+        entity_type="MCU Update Status",
+        robot_attr="stm_update_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+        value_fn=lambda r: str(r.stm_update_status) if r.stm_update_status is not None else None,
+    ),
+    LitterRobotSensorDescription(
+        key="power_status",
+        entity_type="Power Status",
+        robot_attr="power_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+        value_fn=lambda r: str(r.power_status) if r.power_status is not None else None,
+    ),
+    LitterRobotSensorDescription(
+        key="privacy_mode",
+        entity_type="Privacy Mode",
+        robot_attr="privacy_mode",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+        value_fn=lambda r: str(r.privacy_mode) if r.privacy_mode is not None else None,
+    ),
+)
+
+
+class LitterRobotSensor(LitterRobotEntity, SensorEntity):
+    """Generic Litter-Robot sensor driven by an entity description."""
+
+    entity_description: LitterRobotSensorDescription
 
     def __init__(
-        self, robot: Robot, entity_type: str, hub: LitterRobotHub, sensor_attribute: str
+        self,
+        robot: Robot,
+        hub: LitterRobotHub,
+        description: LitterRobotSensorDescription,
     ) -> None:
-        """Pass robot, entity_type and hub to LitterRobotEntity."""
-        super().__init__(robot, entity_type, hub)
-        self.sensor_attribute = sensor_attribute
+        """Initialize a Litter-Robot sensor."""
+        super().__init__(robot, description.entity_type, hub)
+        self.entity_description = description
+        self._sensor_attribute = description.robot_attr
 
     @property
-    def native_value(self) -> str:
+    def native_value(self) -> Any:
         """Return the state."""
-        return getattr(self.robot, self.sensor_attribute)
-
-
-class LitterRobotWasteSensor(LitterRobotPropertySensor):
-    """Litter-Robot waste sensor."""
+        if self.entity_description.value_fn:
+            return self.entity_description.value_fn(self.robot)
+        return getattr(self.robot, self._sensor_attribute, None)
 
     @property
-    def native_unit_of_measurement(self) -> str:
-        """Return unit of measurement."""
-        return PERCENTAGE
-
-    @property
-    def icon(self) -> str:
-        """Return the icon to use in the frontend, if any."""
-        return icon_for_gauge_level(self.native_value, 10)
+    def icon(self) -> str | None:
+        """Return the icon."""
+        if self.entity_description.icon_fn:
+            return self.entity_description.icon_fn(self.native_value)
+        return self.entity_description.icon
 
 
-class LitterRobotSleepTimeSensor(LitterRobotPropertySensor):
-    """Litter-Robot sleep time sensor."""
+class LitterRobotSleepTimeSensor(LitterRobotEntity, SensorEntity):
+    """Litter-Robot sleep time sensor (returns None when sleep mode disabled)."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(
+        self,
+        robot: Robot,
+        hub: LitterRobotHub,
+        entity_type: str,
+        sensor_attribute: str,
+    ) -> None:
+        """Initialize the sleep time sensor."""
+        super().__init__(robot, entity_type, hub)
+        self._sensor_attribute = sensor_attribute
 
     @property
     def native_value(self):
         """Return the state."""
         if self.robot.sleep_mode_enabled:
-            return getattr(self.robot, self.sensor_attribute)
+            return getattr(self.robot, self._sensor_attribute)
         return None
 
 
-class LitterRobotLitterLevelSensor(LitterRobotPropertySensor):
-    """Litter-Robot 5 litter level sensor."""
+# --- Feeder Robot Sensor Descriptions ---
+
+
+FEEDER_SENSOR_DESCRIPTIONS: tuple[LitterRobotSensorDescription, ...] = (
+    LitterRobotSensorDescription(
+        key="food_level",
+        entity_type="Food Level",
+        robot_attr="food_level",
+        native_unit_of_measurement=PERCENTAGE,
+        icon_fn=icon_for_gauge_level,
+    ),
+    LitterRobotSensorDescription(
+        key="next_feeding",
+        entity_type="Next Feeding",
+        robot_attr="next_feeding",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        icon="mdi:clock-outline",
+    ),
+)
+
+
+class FeederRobotFoodDispensedSensor(LitterRobotEntity, SensorEntity):
+    """Feeder-Robot food dispensed today sensor (needs self.hass for timezone)."""
+
+    def __init__(self, robot: Robot, hub: LitterRobotHub) -> None:
+        """Initialize the food dispensed sensor."""
+        super().__init__(robot, "Food Dispensed Today", hub)
+
+    @property
+    def native_value(self) -> float:
+        """Return food dispensed today in cups."""
+        import zoneinfo
+        try:
+            tz = zoneinfo.ZoneInfo(self.hass.config.time_zone)
+        except Exception:
+            tz = timezone.utc
+        today_start = datetime.now(tz).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        try:
+            return self.robot.get_food_dispensed_since(today_start)
+        except Exception:
+            return 0.0
 
     @property
     def native_unit_of_measurement(self) -> str:
         """Return unit of measurement."""
-        return PERCENTAGE
-
-    @property
-    def icon(self) -> str:
-        """Return the icon to use in the frontend, if any."""
-        return icon_for_gauge_level(self.native_value)
-
-
-class LitterRobotCycleCountSensor(LitterRobotPropertySensor):
-    """Litter-Robot 5 cycle count sensor."""
+        return "cups"
 
     @property
     def icon(self) -> str:
         """Return the icon."""
-        return "mdi:counter"
+        return "mdi:bowl-mix"
 
 
-class LitterRobotPetWeightSensor(LitterRobotPropertySensor):
-    """Litter-Robot 5 pet weight sensor."""
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return unit of measurement."""
-        return "lbs"
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:scale"
-
-
-class LitterRobotWifiSensor(LitterRobotPropertySensor):
-    """Litter-Robot 5 WiFi signal strength sensor."""
-
-    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return unit of measurement."""
-        return SIGNAL_STRENGTH_DECIBELS_MILLIWATT
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        rssi = self.native_value
-        if rssi is None or rssi == 0:
-            return "mdi:wifi-off"
-        if rssi >= -50:
-            return "mdi:wifi-strength-4"
-        if rssi >= -60:
-            return "mdi:wifi-strength-3"
-        if rssi >= -70:
-            return "mdi:wifi-strength-2"
-        return "mdi:wifi-strength-1"
-
-
-class LitterRobotSoundVolumeSensor(LitterRobotPropertySensor):
-    """Litter-Robot 5 sound volume sensor."""
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return unit of measurement."""
-        return "%"
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        vol = self.native_value
-        if vol is None or vol == 0:
-            return "mdi:volume-off"
-        if vol < 50:
-            return "mdi:volume-medium"
-        return "mdi:volume-high"
-
-
-class LitterRobotFirmwareSensor(LitterRobotPropertySensor):
-    """Litter-Robot 5 firmware version sensor."""
-
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:chip"
-
-
-class LitterRobotDiagnosticSensor(LitterRobotPropertySensor):
-    """Litter-Robot diagnostic sensor (generic text value)."""
-
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def native_value(self) -> str:
-        """Return the state."""
-        value = getattr(self.robot, self.sensor_attribute, None)
-        return str(value) if value is not None else None
-
-
-class LitterRobotDiagnosticCounterSensor(LitterRobotPropertySensor):
-    """Litter-Robot diagnostic counter sensor."""
-
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:counter"
-
-
-class LitterRobotDiagnosticTimestampSensor(LitterRobotPropertySensor):
-    """Litter-Robot diagnostic timestamp sensor."""
+class FeederRobotLastFeedingSensor(LitterRobotEntity, SensorEntity):
+    """Feeder-Robot last feeding sensor."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, robot: Robot, hub: LitterRobotHub) -> None:
+        """Initialize the last feeding sensor."""
+        super().__init__(robot, "Last Feeding", hub)
 
     @property
     def native_value(self):
-        """Return the state."""
-        return getattr(self.robot, self.sensor_attribute, None)
+        """Return the timestamp of the last feeding."""
+        feeding = self.robot.last_feeding
+        if feeding and "timestamp" in feeding:
+            return feeding["timestamp"]
+        return None
 
-
-class LitterRobotScoopsSavedSensor(LitterRobotPropertySensor):
-    """Litter-Robot 5 scoops saved sensor."""
-
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return last feeding details."""
+        feeding = self.robot.last_feeding
+        if feeding:
+            return {
+                "amount": feeding.get("amount"),
+                "name": feeding.get("name"),
+            }
+        return {}
 
     @property
     def icon(self) -> str:
         """Return the icon."""
-        return "mdi:hand-heart"
+        return "mdi:food-drumstick"
 
 
-ROBOT_SENSORS: list[
-    tuple[type[LitterRobotPropertySensor], str, str, Callable[[Robot], bool] | None]
-] = [
-    (LitterRobotWasteSensor, "Waste Drawer", "waste_drawer_level", None),
-    (LitterRobotSleepTimeSensor, "Sleep Mode Start Time", "sleep_mode_start_time", None),
-    (LitterRobotSleepTimeSensor, "Sleep Mode End Time", "sleep_mode_end_time", None),
-    (LitterRobotLitterLevelSensor, "Litter Level", "litter_level", is_lr5),
-    (LitterRobotCycleCountSensor, "Total Clean Cycles", "cycle_count", is_lr5),
-    (LitterRobotPetWeightSensor, "Last Pet Weight", "pet_weight", is_lr5),
-    (LitterRobotWifiSensor, "WiFi Signal", "wifi_rssi", is_lr5),
-    (LitterRobotSoundVolumeSensor, "Sound Volume", "sound_volume", is_lr5),
-    (LitterRobotFirmwareSensor, "Firmware", "firmware", is_lr5),
-    (LitterRobotScoopsSavedSensor, "Total Scoops Saved", "scoops_saved_count", is_lr5),
-    (LitterRobotDiagnosticTimestampSensor, "Next Filter Replacement", "next_filter_replacement_date", is_lr5),
-    (LitterRobotDiagnosticTimestampSensor, "Setup Date", "setup_date", is_lr5),
-    (LitterRobotDiagnosticTimestampSensor, "Last Cloud Check-in", "last_seen", is_lr5),
-    (LitterRobotDiagnosticCounterSensor, "Drawer Empty Cycles", "odometer_empty_cycles", is_lr5),
-    (LitterRobotDiagnosticCounterSensor, "Filter Change Cycles", "odometer_filter_cycles", is_lr5),
-    (LitterRobotDiagnosticCounterSensor, "Power Cycles", "odometer_power_cycles", is_lr5),
-    (LitterRobotDiagnosticCounterSensor, "Cycles Since Reset", "last_reset_odometer_clean_cycles", is_lr5),
-    (LitterRobotDiagnosticSensor, "Hopper Status", "hopper_status", is_lr5),
-    (LitterRobotDiagnosticSensor, "Motor Fault Status", "globe_motor_fault_status", is_lr5),
-    (LitterRobotDiagnosticSensor, "Pinch Status", "pinch_status", is_lr5),
-    (LitterRobotDiagnosticSensor, "Cat Detect Status", "cat_detect", is_lr5),
-    (LitterRobotDiagnosticSensor, "Firmware Update Status", "firmware_update_status", is_lr5),
-    (LitterRobotDiagnosticSensor, "MCU Update Status", "stm_update_status", is_lr5),
-    (LitterRobotDiagnosticSensor, "Power Status", "power_status", is_lr5),
-    (LitterRobotDiagnosticSensor, "Privacy Mode", "privacy_mode", is_lr5),
-]
+# --- Pet Sensor Descriptions ---
+
+
+@dataclass(frozen=True, kw_only=True)
+class LitterRobotPetSensorDescription(SensorEntityDescription):
+    """Describes a Litter-Robot pet sensor."""
+
+    entity_type: str
+    pet_attr: str = ""
+    value_fn: Callable[[Pet], Any] | None = None
+    icon_fn: Callable[[Any], str] | None = None
+
+
+def _gender_icon(val: Any) -> str:
+    """Return gender icon."""
+    if val and str(val).lower() == "female":
+        return "mdi:gender-female"
+    return "mdi:gender-male"
+
+
+def _pet_type_icon(val: Any) -> str:
+    """Return pet type icon."""
+    if val and str(val).lower() == "cat":
+        return "mdi:cat"
+    return "mdi:dog"
+
+
+def _health_icon(val: Any) -> str:
+    """Return health status icon."""
+    return "mdi:heart-pulse" if val == "Healthy" else "mdi:alert-circle"
+
+
+PET_SENSOR_DESCRIPTIONS: tuple[LitterRobotPetSensorDescription, ...] = (
+    LitterRobotPetSensorDescription(
+        key="pet_gender",
+        entity_type="Gender",
+        value_fn=lambda p: str(p.gender).capitalize() if getattr(p, "gender", None) else None,
+        icon_fn=lambda v: _gender_icon(v),
+    ),
+    LitterRobotPetSensorDescription(
+        key="pet_type",
+        entity_type="Type",
+        value_fn=lambda p: str(p.pet_type).capitalize() if getattr(p, "pet_type", None) else None,
+        icon_fn=lambda v: _pet_type_icon(v),
+    ),
+    LitterRobotPetSensorDescription(
+        key="pet_diet",
+        entity_type="Diet",
+        value_fn=lambda p: str(p.diet) if getattr(p, "diet", None) else None,
+        icon="mdi:food-drumstick",
+    ),
+    LitterRobotPetSensorDescription(
+        key="pet_environment",
+        entity_type="Environment",
+        value_fn=lambda p: str(p.environment_type) if getattr(p, "environment_type", None) else None,
+        icon="mdi:home",
+    ),
+    LitterRobotPetSensorDescription(
+        key="pet_birthday",
+        entity_type="Birthday",
+        value_fn=lambda p: p.birthday.isoformat() if getattr(p, "birthday", None) else None,
+        icon="mdi:cake-variant-outline",
+    ),
+    LitterRobotPetSensorDescription(
+        key="pet_adoption_date",
+        entity_type="Adoption Date",
+        value_fn=lambda p: p.adoption_date.isoformat() if getattr(p, "adoption_date", None) else None,
+        icon="mdi:heart",
+    ),
+    LitterRobotPetSensorDescription(
+        key="pet_fixed",
+        entity_type="Fixed",
+        value_fn=lambda p: ("Yes" if p.is_fixed else "No") if getattr(p, "is_fixed", None) is not None else None,
+        icon="mdi:medical-bag",
+    ),
+)
 
 
 class LitterRobotPetSensor(CoordinatorEntity, SensorEntity):
-    """A pet sensor base class."""
+    """Base class for pet sensors."""
 
     def __init__(self, pet: Pet, entity_type: str, hub: LitterRobotHub) -> None:
         """Initialize the pet sensor."""
@@ -275,8 +521,36 @@ class LitterRobotPetSensor(CoordinatorEntity, SensorEntity):
         }
 
 
+class LitterRobotPetAttributeSensor(LitterRobotPetSensor):
+    """Generic pet attribute sensor driven by a description."""
+
+    def __init__(
+        self,
+        pet: Pet,
+        hub: LitterRobotHub,
+        description: LitterRobotPetSensorDescription,
+    ) -> None:
+        """Initialize the pet attribute sensor."""
+        super().__init__(pet, description.entity_type, hub)
+        self._description = description
+
+    @property
+    def native_value(self) -> Any:
+        """Return the state."""
+        if self._description.value_fn:
+            return self._description.value_fn(self.pet)
+        return getattr(self.pet, self._description.pet_attr, None)
+
+    @property
+    def icon(self) -> str | None:
+        """Return the icon."""
+        if self._description.icon_fn:
+            return self._description.icon_fn(self.native_value)
+        return self._description.icon
+
+
 class LitterRobotPetWeightSensor(LitterRobotPetSensor):
-    """Pet weight sensor."""
+    """Pet weight sensor with full profile attributes."""
 
     @property
     def native_value(self) -> float | None:
@@ -326,9 +600,9 @@ class LitterRobotPetWeightSensor(LitterRobotPetSensor):
 
 
 class LitterRobotPetVisitsSensor(LitterRobotPetSensor):
-    """Pet visits sensor with configurable period."""
+    """Pet visits sensor with configurable period (needs self.hass for timezone)."""
 
-    def __init__(self, pet, entity_type: str, hub, period: str = "today") -> None:
+    def __init__(self, pet: Pet, entity_type: str, hub: LitterRobotHub, period: str = "today") -> None:
         """Initialize with a time period."""
         super().__init__(pet=pet, entity_type=entity_type, hub=hub)
         self._period = period
@@ -345,7 +619,6 @@ class LitterRobotPetVisitsSensor(LitterRobotPetSensor):
             return now.replace(hour=0, minute=0, second=0, microsecond=0)
         elif self._period == "week":
             start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            from datetime import timedelta
             start -= timedelta(days=start.weekday())
             return start
         elif self._period == "month":
@@ -451,24 +724,6 @@ class LitterRobotPetProfileSensor(LitterRobotPetSensor):
         return attrs
 
 
-class LitterRobotPetGenderSensor(LitterRobotPetSensor):
-    """Pet gender sensor."""
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the gender."""
-        gender = getattr(self.pet, "gender", None)
-        return str(gender).capitalize() if gender else None
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        gender = getattr(self.pet, "gender", None)
-        if gender and str(gender) == "female":
-            return "mdi:gender-female"
-        return "mdi:gender-male"
-
-
 class LitterRobotPetAgeSensor(LitterRobotPetSensor):
     """Pet age sensor, calculated from birthday."""
 
@@ -477,7 +732,6 @@ class LitterRobotPetAgeSensor(LitterRobotPetSensor):
         """Return the age calculated from birthday."""
         birthday = getattr(self.pet, "birthday", None)
         if birthday:
-            from datetime import date
             today = date.today()
             age = today.year - birthday.year
             if (today.month, today.day) < (birthday.month, birthday.day):
@@ -500,99 +754,6 @@ class LitterRobotPetAgeSensor(LitterRobotPetSensor):
         """Return birthday."""
         birthday = getattr(self.pet, "birthday", None)
         return {"birthday": birthday.isoformat() if birthday else None}
-
-
-class LitterRobotPetDietSensor(LitterRobotPetSensor):
-    """Pet diet sensor."""
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the diet."""
-        diet = getattr(self.pet, "diet", None)
-        return str(diet) if diet else None
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:food-drumstick"
-
-
-class LitterRobotPetEnvironmentSensor(LitterRobotPetSensor):
-    """Pet environment sensor."""
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the environment type."""
-        env = getattr(self.pet, "environment_type", None)
-        return str(env) if env else None
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:home"
-
-
-class LitterRobotPetTypeSensor(LitterRobotPetSensor):
-    """Pet type sensor (Cat/Dog)."""
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the pet type."""
-        pet_type = getattr(self.pet, "pet_type", None)
-        return str(pet_type).capitalize() if pet_type else None
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        pet_type = getattr(self.pet, "pet_type", None)
-        return "mdi:cat" if pet_type and str(pet_type) == "cat" else "mdi:dog"
-
-
-class LitterRobotPetBirthdaySensor(LitterRobotPetSensor):
-    """Pet birthday sensor."""
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the birthday."""
-        birthday = getattr(self.pet, "birthday", None)
-        return birthday.isoformat() if birthday else None
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:cake-variant-outline"
-
-
-class LitterRobotPetAdoptionDateSensor(LitterRobotPetSensor):
-    """Pet adoption date sensor."""
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the adoption date."""
-        adoption_date = getattr(self.pet, "adoption_date", None)
-        return adoption_date.isoformat() if adoption_date else None
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:heart"
-
-
-class LitterRobotPetFixedSensor(LitterRobotPetSensor):
-    """Pet fixed/neutered sensor."""
-
-    @property
-    def native_value(self) -> str | None:
-        """Return fixed status."""
-        is_fixed = getattr(self.pet, "is_fixed", None)
-        if is_fixed is None:
-            return None
-        return "Yes" if is_fixed else "No"
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:medical-bag"
 
 
 class LitterRobotPetHealthySensor(LitterRobotPetSensor):
@@ -619,106 +780,6 @@ class LitterRobotPetHealthySensor(LitterRobotPetSensor):
         return {"health_concerns": ", ".join(concerns) if concerns else None}
 
 
-class FeederRobotFoodLevelSensor(LitterRobotPropertySensor):
-    """Feeder-Robot food level sensor."""
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return unit of measurement."""
-        return PERCENTAGE
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return icon_for_gauge_level(self.native_value)
-
-
-class FeederRobotFoodDispensedSensor(LitterRobotPropertySensor):
-    """Feeder-Robot food dispensed today sensor."""
-
-    @property
-    def native_value(self) -> float:
-        """Return food dispensed today in cups."""
-        import zoneinfo
-        try:
-            tz = zoneinfo.ZoneInfo(self.hass.config.time_zone)
-        except Exception:
-            tz = timezone.utc
-        today_start = datetime.now(tz).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        try:
-            return self.robot.get_food_dispensed_since(today_start)
-        except Exception:
-            return 0.0
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return unit of measurement."""
-        return "cups"
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:bowl-mix"
-
-
-class FeederRobotLastFeedingSensor(LitterRobotPropertySensor):
-    """Feeder-Robot last feeding sensor."""
-
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
-
-    @property
-    def native_value(self):
-        """Return the timestamp of the last feeding."""
-        feeding = self.robot.last_feeding
-        if feeding and "timestamp" in feeding:
-            return feeding["timestamp"]
-        return None
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return last feeding details."""
-        feeding = self.robot.last_feeding
-        if feeding:
-            return {
-                "amount": feeding.get("amount"),
-                "name": feeding.get("name"),
-            }
-        return {}
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:food-drumstick"
-
-
-class FeederRobotNextFeedingSensor(LitterRobotPropertySensor):
-    """Feeder-Robot next feeding sensor."""
-
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
-
-    @property
-    def native_value(self):
-        """Return the next feeding time."""
-        return getattr(self.robot, self.sensor_attribute, None)
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:clock-outline"
-
-
-FEEDER_SENSORS: list[
-    tuple[type[LitterRobotPropertySensor], str, str]
-] = [
-    (FeederRobotFoodLevelSensor, "Food Level", "food_level"),
-    (FeederRobotFoodDispensedSensor, "Food Dispensed Today", "food_dispensed_today"),
-    (FeederRobotLastFeedingSensor, "Last Feeding", "last_feeding"),
-    (FeederRobotNextFeedingSensor, "Next Feeding", "next_feeding"),
-]
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -727,31 +788,34 @@ async def async_setup_entry(
     """Set up Litter-Robot sensors using config entry."""
     hub: LitterRobotHub = hass.data[DOMAIN][entry.entry_id]
 
-    entities = []
+    entities: list[SensorEntity] = []
     for robot in hub.account.robots:
         if is_litter_robot(robot):
-            for sensor_class, entity_type, sensor_attribute, model_filter in ROBOT_SENSORS:
-                if model_filter is not None and not model_filter(robot):
+            # Description-driven robot sensors
+            for desc in ROBOT_SENSOR_DESCRIPTIONS:
+                if desc.model_filter and not desc.model_filter(robot):
                     continue
-                entities.append(
-                    sensor_class(
-                        robot=robot,
-                        entity_type=entity_type,
-                        hub=hub,
-                        sensor_attribute=sensor_attribute,
-                    )
+                entities.append(LitterRobotSensor(robot, hub, desc))
+            # Custom sleep time sensors
+            entities.append(
+                LitterRobotSleepTimeSensor(
+                    robot, hub, "Sleep Mode Start Time", "sleep_mode_start_time"
                 )
+            )
+            entities.append(
+                LitterRobotSleepTimeSensor(
+                    robot, hub, "Sleep Mode End Time", "sleep_mode_end_time"
+                )
+            )
         elif is_feeder_robot(robot):
-            for sensor_class, entity_type, sensor_attribute in FEEDER_SENSORS:
-                entities.append(
-                    sensor_class(
-                        robot=robot,
-                        entity_type=entity_type,
-                        hub=hub,
-                        sensor_attribute=sensor_attribute,
-                    )
-                )
+            # Description-driven feeder sensors
+            for desc in FEEDER_SENSOR_DESCRIPTIONS:
+                entities.append(LitterRobotSensor(robot, hub, desc))
+            # Custom feeder sensors
+            entities.append(FeederRobotFoodDispensedSensor(robot, hub))
+            entities.append(FeederRobotLastFeedingSensor(robot, hub))
 
+    # Pet sensors
     for pet in hub.account.pets:
         entities.append(
             LitterRobotPetWeightSensor(pet=pet, entity_type="Weight", hub=hub)
@@ -774,29 +838,11 @@ async def async_setup_entry(
         entities.append(
             LitterRobotPetProfileSensor(pet=pet, entity_type="Profile", hub=hub)
         )
-        entities.append(
-            LitterRobotPetGenderSensor(pet=pet, entity_type="Gender", hub=hub)
-        )
+        # Description-driven simple pet sensors
+        for desc in PET_SENSOR_DESCRIPTIONS:
+            entities.append(LitterRobotPetAttributeSensor(pet, hub, desc))
         entities.append(
             LitterRobotPetAgeSensor(pet=pet, entity_type="Age", hub=hub)
-        )
-        entities.append(
-            LitterRobotPetDietSensor(pet=pet, entity_type="Diet", hub=hub)
-        )
-        entities.append(
-            LitterRobotPetEnvironmentSensor(pet=pet, entity_type="Environment", hub=hub)
-        )
-        entities.append(
-            LitterRobotPetTypeSensor(pet=pet, entity_type="Type", hub=hub)
-        )
-        entities.append(
-            LitterRobotPetBirthdaySensor(pet=pet, entity_type="Birthday", hub=hub)
-        )
-        entities.append(
-            LitterRobotPetAdoptionDateSensor(pet=pet, entity_type="Adoption Date", hub=hub)
-        )
-        entities.append(
-            LitterRobotPetFixedSensor(pet=pet, entity_type="Fixed", hub=hub)
         )
         entities.append(
             LitterRobotPetHealthySensor(pet=pet, entity_type="Health", hub=hub)

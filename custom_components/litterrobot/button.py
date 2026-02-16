@@ -1,95 +1,103 @@
 """Support for Litter-Robot button entities."""
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
+from typing import Any
 
 from pylitterbot.robot import Robot
 
-from homeassistant.components.button import ButtonEntity
+from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import LitterRobotControlEntity, is_litter_robot, is_feeder_robot, is_lr5
+from .entity import (
+    LitterRobotControlEntity,
+    LitterRobotEntityDescription,
+    is_litter_robot,
+    is_feeder_robot,
+    is_lr5,
+)
 from .hub import LitterRobotHub
 
 
-class LitterRobotCleanButton(LitterRobotControlEntity, ButtonEntity):
-    """Litter-Robot Clean Cycle button."""
+@dataclass(frozen=True, kw_only=True)
+class LitterRobotButtonDescription(
+    ButtonEntityDescription, LitterRobotEntityDescription
+):
+    """Describes a Litter-Robot button."""
 
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:play-circle"
+    press_fn: Callable[[Robot], Coroutine[Any, Any, Any]]
+    use_coordinator_update: bool = False
+
+
+ROBOT_BUTTON_DESCRIPTIONS: tuple[LitterRobotButtonDescription, ...] = (
+    LitterRobotButtonDescription(
+        key="clean_cycle",
+        entity_type="Clean Cycle",
+        icon="mdi:play-circle",
+        press_fn=lambda r: r.start_cleaning(),
+    ),
+    LitterRobotButtonDescription(
+        key="reset_waste_drawer",
+        entity_type="Reset Waste Drawer",
+        icon="mdi:delete-empty",
+        press_fn=lambda r: r.reset_waste_drawer(),
+        use_coordinator_update=True,
+    ),
+    LitterRobotButtonDescription(
+        key="recalibrate",
+        entity_type="Recalibrate",
+        icon="mdi:restart",
+        press_fn=lambda r: r.reset(),
+        model_filter=is_lr5,
+    ),
+    LitterRobotButtonDescription(
+        key="change_filter",
+        entity_type="Change Filter",
+        icon="mdi:air-filter",
+        press_fn=lambda r: r.change_filter(),
+        use_coordinator_update=True,
+        model_filter=is_lr5,
+    ),
+)
+
+FEEDER_BUTTON_DESCRIPTIONS: tuple[LitterRobotButtonDescription, ...] = (
+    LitterRobotButtonDescription(
+        key="give_snack",
+        entity_type="Give Snack",
+        icon="mdi:food-drumstick",
+        press_fn=lambda r: r.give_snack(),
+    ),
+)
+
+
+class LitterRobotButton(LitterRobotControlEntity, ButtonEntity):
+    """Litter-Robot button driven by an entity description."""
+
+    entity_description: LitterRobotButtonDescription
+
+    def __init__(
+        self,
+        robot: Robot,
+        hub: LitterRobotHub,
+        description: LitterRobotButtonDescription,
+    ) -> None:
+        """Initialize a Litter-Robot button."""
+        super().__init__(robot, description.entity_type, hub)
+        self.entity_description = description
 
     async def async_press(self) -> None:
-        """Start a clean cycle."""
-        await self.perform_action_and_refresh(self.robot.start_cleaning)
-
-
-class LitterRobotResetButton(LitterRobotControlEntity, ButtonEntity):
-    """Litter-Robot 5 Reset button."""
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:restart"
-
-    async def async_press(self) -> None:
-        """Perform a remote reset."""
-        await self.perform_action_and_refresh(self.robot.reset)
-
-
-class LitterRobotResetWasteDrawerButton(LitterRobotControlEntity, ButtonEntity):
-    """Litter-Robot Reset Waste Drawer button."""
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:delete-empty"
-
-    async def async_press(self) -> None:
-        """Reset the waste drawer level."""
-        await self.robot.reset_waste_drawer()
-        self.coordinator.async_set_updated_data(True)
-
-
-class FeederRobotGiveSnackButton(LitterRobotControlEntity, ButtonEntity):
-    """Feeder-Robot Give Snack button."""
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:food-drumstick"
-
-    async def async_press(self) -> None:
-        """Dispense a snack."""
-        await self.perform_action_and_refresh(self.robot.give_snack)
-
-
-class LitterRobotChangeFilterButton(LitterRobotControlEntity, ButtonEntity):
-    """Litter-Robot 5 Change Filter button."""
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:air-filter"
-
-    async def async_press(self) -> None:
-        """Reset the filter replacement counter."""
-        await self.robot.change_filter()
-        self.coordinator.async_set_updated_data(True)
-
-
-ROBOT_BUTTONS: list[
-    tuple[type[LitterRobotControlEntity], str, Callable[[Robot], bool] | None]
-] = [
-    (LitterRobotCleanButton, "Clean Cycle", None),
-    (LitterRobotResetWasteDrawerButton, "Reset Waste Drawer", None),
-    (LitterRobotResetButton, "Recalibrate", is_lr5),
-    (LitterRobotChangeFilterButton, "Change Filter", is_lr5),
-]
+        """Handle the button press."""
+        if self.entity_description.use_coordinator_update:
+            await self.entity_description.press_fn(self.robot)
+            self.coordinator.async_set_updated_data(True)
+        else:
+            await self.perform_action_and_refresh(
+                self.entity_description.press_fn, self.robot
+            )
 
 
 async def async_setup_entry(
@@ -103,15 +111,12 @@ async def async_setup_entry(
     entities = []
     for robot in hub.account.robots:
         if is_litter_robot(robot):
-            for button_class, entity_type, model_filter in ROBOT_BUTTONS:
-                if model_filter is not None and not model_filter(robot):
+            for desc in ROBOT_BUTTON_DESCRIPTIONS:
+                if desc.model_filter and not desc.model_filter(robot):
                     continue
-                entities.append(
-                    button_class(robot=robot, entity_type=entity_type, hub=hub)
-                )
+                entities.append(LitterRobotButton(robot, hub, desc))
         elif is_feeder_robot(robot):
-            entities.append(
-                FeederRobotGiveSnackButton(robot=robot, entity_type="Give Snack", hub=hub)
-            )
+            for desc in FEEDER_BUTTON_DESCRIPTIONS:
+                entities.append(LitterRobotButton(robot, hub, desc))
 
     async_add_entities(entities, True)

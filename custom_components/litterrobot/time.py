@@ -2,22 +2,74 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import time
-from typing import Any, Callable
+from typing import Any
 
 from pylitterbot.robot import Robot
 
-from homeassistant.components.time import TimeEntity
+from homeassistant.components.time import TimeEntity, TimeEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import LitterRobotControlEntity, is_litter_robot, is_lr5
+from .entity import (
+    LitterRobotControlEntity,
+    LitterRobotEntityDescription,
+    is_litter_robot,
+    is_lr5,
+)
 from .hub import LitterRobotHub
 
 WEEKDAY_DAYS = [0, 1, 2, 3, 4]
 WEEKEND_DAYS = [5, 6]
+
+
+@dataclass(frozen=True, kw_only=True)
+class LitterRobotTimeDescription(
+    TimeEntityDescription, LitterRobotEntityDescription
+):
+    """Describes a Litter-Robot time entity."""
+
+    days: list[int]
+    schedule_field: str
+
+
+TIME_DESCRIPTIONS: tuple[LitterRobotTimeDescription, ...] = (
+    LitterRobotTimeDescription(
+        key="sleep_start_weekday",
+        entity_type="Sleep Start Weekday",
+        icon="mdi:weather-night",
+        model_filter=is_lr5,
+        days=WEEKDAY_DAYS,
+        schedule_field="sleepTime",
+    ),
+    LitterRobotTimeDescription(
+        key="sleep_end_weekday",
+        entity_type="Sleep End Weekday",
+        icon="mdi:weather-sunny",
+        model_filter=is_lr5,
+        days=WEEKDAY_DAYS,
+        schedule_field="wakeTime",
+    ),
+    LitterRobotTimeDescription(
+        key="sleep_start_weekend",
+        entity_type="Sleep Start Weekend",
+        icon="mdi:weather-night",
+        model_filter=is_lr5,
+        days=WEEKEND_DAYS,
+        schedule_field="sleepTime",
+    ),
+    LitterRobotTimeDescription(
+        key="sleep_end_weekend",
+        entity_type="Sleep End Weekend",
+        icon="mdi:weather-sunny",
+        model_filter=is_lr5,
+        days=WEEKEND_DAYS,
+        schedule_field="wakeTime",
+    ),
+)
 
 
 def _minutes_to_time(minutes: int) -> time | None:
@@ -65,46 +117,30 @@ async def _patch_schedule_time(
 class LitterRobotSleepTimeEntity(LitterRobotControlEntity, TimeEntity):
     """Litter-Robot sleep schedule time entity."""
 
+    entity_description: LitterRobotTimeDescription
+
     def __init__(
         self,
         robot: Robot,
-        entity_type: str,
         hub: LitterRobotHub,
-        days: list[int],
-        field: str,
+        description: LitterRobotTimeDescription,
     ) -> None:
         """Init a sleep time entity."""
-        super().__init__(robot=robot, entity_type=entity_type, hub=hub)
-        self._days = days
-        self._field = field
+        super().__init__(robot=robot, entity_type=description.entity_type, hub=hub)
+        self.entity_description = description
+        self._days = description.days
+        self._field = description.schedule_field
 
     @property
     def native_value(self) -> time | None:
         """Return the current time value."""
         return _get_schedule_time(self.robot, self._days, self._field)
 
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        if self._field == "sleepTime":
-            return "mdi:weather-night"
-        return "mdi:weather-sunny"
-
     async def async_set_value(self, value: time) -> None:
         """Set the time value."""
         await self.perform_action_and_refresh(
             _patch_schedule_time, self.robot, self._days, self._field, value
         )
-
-
-ROBOT_TIMES: list[
-    tuple[str, list[int], str, Callable[[Robot], bool] | None]
-] = [
-    ("Sleep Start Weekday", WEEKDAY_DAYS, "sleepTime", is_lr5),
-    ("Sleep End Weekday", WEEKDAY_DAYS, "wakeTime", is_lr5),
-    ("Sleep Start Weekend", WEEKEND_DAYS, "sleepTime", is_lr5),
-    ("Sleep End Weekend", WEEKEND_DAYS, "wakeTime", is_lr5),
-]
 
 
 async def async_setup_entry(
@@ -119,17 +155,9 @@ async def async_setup_entry(
     for robot in hub.account.robots:
         if not is_litter_robot(robot):
             continue
-        for entity_type, days, field, model_filter in ROBOT_TIMES:
-            if model_filter is not None and not model_filter(robot):
+        for desc in TIME_DESCRIPTIONS:
+            if desc.model_filter and not desc.model_filter(robot):
                 continue
-            entities.append(
-                LitterRobotSleepTimeEntity(
-                    robot=robot,
-                    entity_type=entity_type,
-                    hub=hub,
-                    days=days,
-                    field=field,
-                )
-            )
+            entities.append(LitterRobotSleepTimeEntity(robot, hub, desc))
 
     async_add_entities(entities, True)

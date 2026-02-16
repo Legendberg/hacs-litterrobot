@@ -16,5 +16,14 @@
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_account%]"
     }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "clean_cycle_complete": "Clean cycle completed",
+      "waste_drawer_full": "Waste drawer is full",
+      "pet_visit": "Pet visited the litter box",
+      "robot_online": "Robot came online",
+      "robot_offline": "Robot went offline"
+    }
   }
 }

@@ -1,13 +1,15 @@
 """Support for Litter-Robot binary sensors."""
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from pylitterbot.robot import Robot
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
+    BinarySensorEntityDescription,
 )
 from homeassistant.const import EntityCategory
 from homeassistant.config_entries import ConfigEntry
@@ -15,72 +17,109 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import LitterRobotEntity, is_litter_robot, is_feeder_robot, is_lr5, is_lr5_pro
+from .entity import (
+    LitterRobotEntity,
+    LitterRobotEntityDescription,
+    is_litter_robot,
+    is_feeder_robot,
+    is_lr5,
+    is_lr5_pro,
+)
 from .hub import LitterRobotHub
 
 
+@dataclass(frozen=True, kw_only=True)
+class LitterRobotBinarySensorDescription(
+    BinarySensorEntityDescription, LitterRobotEntityDescription
+):
+    """Describes a Litter-Robot binary sensor."""
+
+    icon_fn: Callable[[bool], str] | None = None
+
+
+BINARY_SENSOR_DESCRIPTIONS: tuple[LitterRobotBinarySensorDescription, ...] = (
+    LitterRobotBinarySensorDescription(
+        key="drawer_removed",
+        entity_type="Drawer Removed",
+        robot_attr="is_drawer_removed",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        model_filter=is_lr5,
+    ),
+    LitterRobotBinarySensorDescription(
+        key="bonnet_removed",
+        entity_type="Bonnet Removed",
+        robot_attr="is_bonnet_removed",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        model_filter=is_lr5,
+    ),
+    LitterRobotBinarySensorDescription(
+        key="laser_dirty",
+        entity_type="Laser Dirty",
+        robot_attr="is_laser_dirty",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        model_filter=is_lr5,
+    ),
+    LitterRobotBinarySensorDescription(
+        key="camera_audio",
+        entity_type="Camera Audio",
+        robot_attr="camera_audio_enabled",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5_pro,
+        icon_fn=lambda v: "mdi:microphone" if v else "mdi:microphone-off",
+    ),
+    LitterRobotBinarySensorDescription(
+        key="online",
+        entity_type="Online",
+        robot_attr="is_online",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+    LitterRobotBinarySensorDescription(
+        key="smart_weight",
+        entity_type="Smart Weight",
+        robot_attr="is_smart_weight_enabled",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        model_filter=is_lr5,
+    ),
+)
+
+FEEDER_BINARY_SENSOR_DESCRIPTIONS: tuple[LitterRobotBinarySensorDescription, ...] = (
+    LitterRobotBinarySensorDescription(
+        key="feeder_online",
+        entity_type="Online",
+        robot_attr="is_online",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+)
+
+
 class LitterRobotBinarySensor(LitterRobotEntity, BinarySensorEntity):
-    """Litter-Robot binary sensor."""
+    """Litter-Robot binary sensor driven by an entity description."""
+
+    entity_description: LitterRobotBinarySensorDescription
 
     def __init__(
         self,
         robot: Robot,
-        entity_type: str,
         hub: LitterRobotHub,
-        sensor_attribute: str,
+        description: LitterRobotBinarySensorDescription,
     ) -> None:
-        """Pass robot, entity_type and hub to LitterRobotEntity."""
-        super().__init__(robot, entity_type, hub)
-        self.sensor_attribute = sensor_attribute
+        """Initialize a Litter-Robot binary sensor."""
+        super().__init__(robot, description.entity_type, hub)
+        self.entity_description = description
+        self._sensor_attribute = description.robot_attr
 
     @property
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
-        return getattr(self.robot, self.sensor_attribute, False)
+        return getattr(self.robot, self._sensor_attribute, False)
 
     @property
-    def device_class(self) -> str:
-        """Return the device class."""
-        return BinarySensorDeviceClass.PROBLEM
-
-
-class LitterRobotDiagnosticBinarySensor(LitterRobotBinarySensor):
-    """Litter-Robot diagnostic binary sensor (generic boolean)."""
-
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def device_class(self) -> str:
-        """Return the device class."""
-        return None
-
-
-class LitterRobotCameraAudioBinarySensor(LitterRobotBinarySensor):
-    """Litter-Robot 5 Pro Camera Audio binary sensor."""
-
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def device_class(self) -> str:
-        """Return the device class."""
-        return None
-
-    @property
-    def icon(self) -> str:
+    def icon(self) -> str | None:
         """Return the icon."""
-        return "mdi:microphone" if self.is_on else "mdi:microphone-off"
-
-
-ROBOT_BINARY_SENSORS: list[
-    tuple[type[LitterRobotBinarySensor] | None, str, str, Callable[[Robot], bool] | None]
-] = [
-    (None, "Drawer Removed", "is_drawer_removed", is_lr5),
-    (None, "Bonnet Removed", "is_bonnet_removed", is_lr5),
-    (None, "Laser Dirty", "is_laser_dirty", is_lr5),
-    (LitterRobotCameraAudioBinarySensor, "Camera Audio", "camera_audio_enabled", is_lr5_pro),
-    (LitterRobotDiagnosticBinarySensor, "Online", "is_online", is_lr5),
-    (LitterRobotDiagnosticBinarySensor, "Smart Weight", "is_smart_weight_enabled", is_lr5),
-]
+        if self.entity_description.icon_fn:
+            return self.entity_description.icon_fn(self.is_on)
+        return None
 
 
 async def async_setup_entry(
@@ -94,26 +133,12 @@ async def async_setup_entry(
     entities = []
     for robot in hub.account.robots:
         if is_litter_robot(robot):
-            for sensor_class, entity_type, sensor_attribute, model_filter in ROBOT_BINARY_SENSORS:
-                if model_filter is not None and not model_filter(robot):
+            for desc in BINARY_SENSOR_DESCRIPTIONS:
+                if desc.model_filter and not desc.model_filter(robot):
                     continue
-                cls = sensor_class or LitterRobotBinarySensor
-                entities.append(
-                    cls(
-                        robot=robot,
-                        entity_type=entity_type,
-                        hub=hub,
-                        sensor_attribute=sensor_attribute,
-                    )
-                )
+                entities.append(LitterRobotBinarySensor(robot, hub, desc))
         elif is_feeder_robot(robot):
-            entities.append(
-                LitterRobotDiagnosticBinarySensor(
-                    robot=robot,
-                    entity_type="Online",
-                    hub=hub,
-                    sensor_attribute="is_online",
-                )
-            )
+            for desc in FEEDER_BINARY_SENSOR_DESCRIPTIONS:
+                entities.append(LitterRobotBinarySensor(robot, hub, desc))
 
     async_add_entities(entities, True)

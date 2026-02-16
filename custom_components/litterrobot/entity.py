@@ -1,6 +1,8 @@
 """Litter-Robot entities for common data and methods."""
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from datetime import time
 import logging
 from types import MethodType
@@ -43,6 +45,15 @@ def is_lr5(robot: Robot) -> bool:
 def is_lr5_pro(robot: Robot) -> bool:
     """Return True if the robot is a Litter-Robot 5 Pro."""
     return isinstance(robot, LitterRobot5) and robot.is_pro
+
+
+@dataclass(frozen=True, kw_only=True)
+class LitterRobotEntityDescription:
+    """Mixin for Litter-Robot entity descriptions."""
+
+    entity_type: str
+    robot_attr: str = ""
+    model_filter: Callable[[Robot], bool] | None = None
 
 
 class LitterRobotEntity(CoordinatorEntity):
