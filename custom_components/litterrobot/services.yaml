@@ -46,3 +46,19 @@ set_wait_time:
             - "3"
             - "7"
             - "15"
+            - "25"
+            - "30"
+
+change_filter:
+  name: Change filter
+  description: Reset the filter replacement counter (Litter-Robot 5 only).
+  target:
+    entity:
+      integration: litterrobot
+
+reset:
+  name: Reset
+  description: Perform a remote reset on the Litter-Robot, clearing errors and possibly triggering a cycle (Litter-Robot 5 only).
+  target:
+    entity:
+      integration: litterrobot

@@ -6,8 +6,10 @@ import logging
 from types import MethodType
 from typing import Any
 
-from pylitterbot import Robot
+from pylitterbot import LitterRobot, Robot
 from pylitterbot.exceptions import InvalidCommandException
+from pylitterbot.robot.feederrobot import FeederRobot
+from pylitterbot.robot.litterrobot5 import LitterRobot5
 
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo
@@ -21,6 +23,26 @@ from .hub import LitterRobotHub
 _LOGGER = logging.getLogger(__name__)
 
 REFRESH_WAIT_TIME_SECONDS = 8
+
+
+def is_litter_robot(robot: Robot) -> bool:
+    """Return True if the robot is a Litter-Robot (not a Feeder-Robot)."""
+    return isinstance(robot, LitterRobot)
+
+
+def is_feeder_robot(robot: Robot) -> bool:
+    """Return True if the robot is a Feeder-Robot."""
+    return isinstance(robot, FeederRobot)
+
+
+def is_lr5(robot: Robot) -> bool:
+    """Return True if the robot is a Litter-Robot 5."""
+    return isinstance(robot, LitterRobot5)
+
+
+def is_lr5_pro(robot: Robot) -> bool:
+    """Return True if the robot is a Litter-Robot 5 Pro."""
+    return isinstance(robot, LitterRobot5) and robot.is_pro
 
 
 class LitterRobotEntity(CoordinatorEntity):

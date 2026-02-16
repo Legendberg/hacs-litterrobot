@@ -4,39 +4,39 @@ from __future__ import annotations
 from typing import Any
 
 from pylitterbot.enums import LitterBoxStatus
-from pylitterbot.robot import VALID_WAIT_TIMES
 import voluptuous as vol
 
 from homeassistant.components.vacuum import (
-    STATE_CLEANING,
-    STATE_DOCKED,
-    STATE_ERROR,
-    STATE_PAUSED,
-    SUPPORT_START,
-    SUPPORT_STATE,
-    SUPPORT_STATUS,
-    SUPPORT_TURN_OFF,
-    SUPPORT_TURN_ON,
-    VacuumEntity,
+    StateVacuumEntity,
+    VacuumActivity,
+    VacuumEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_OFF
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import LitterRobotControlEntity
+from .entity import LitterRobotControlEntity, is_litter_robot, is_lr5
 from .hub import LitterRobotHub
 
 SUPPORT_LITTERROBOT = (
-    SUPPORT_START | SUPPORT_STATE | SUPPORT_STATUS | SUPPORT_TURN_OFF | SUPPORT_TURN_ON
+    VacuumEntityFeature.START
+    | VacuumEntityFeature.STATE
+    | VacuumEntityFeature.STATUS
+    | VacuumEntityFeature.TURN_OFF
+    | VacuumEntityFeature.TURN_ON
 )
 TYPE_LITTER_BOX = "Litter Box"
 
 SERVICE_RESET_WASTE_DRAWER = "reset_waste_drawer"
 SERVICE_SET_SLEEP_MODE = "set_sleep_mode"
 SERVICE_SET_WAIT_TIME = "set_wait_time"
+SERVICE_CHANGE_FILTER = "change_filter"
+SERVICE_RESET = "reset"
+
+# Combined valid wait times across all models (LR3: 3/7/15, LR5: 3/7/15/25/30)
+ALL_VALID_WAIT_TIMES = [3, 7, 15, 25, 30]
 
 
 async def async_setup_entry(
@@ -49,6 +49,8 @@ async def async_setup_entry(
 
     entities = []
     for robot in hub.account.robots:
+        if not is_litter_robot(robot):
+            continue
         entities.append(
             LitterRobotCleaner(robot=robot, entity_type=TYPE_LITTER_BOX, hub=hub)
         )
@@ -71,35 +73,45 @@ async def async_setup_entry(
     )
     platform.async_register_entity_service(
         SERVICE_SET_WAIT_TIME,
-        {vol.Required("minutes"): vol.All(vol.Coerce(int), vol.In(VALID_WAIT_TIMES))},
+        {vol.Required("minutes"): vol.All(vol.Coerce(int), vol.In(ALL_VALID_WAIT_TIMES))},
         "async_set_wait_time",
+    )
+    platform.async_register_entity_service(
+        SERVICE_CHANGE_FILTER,
+        {},
+        "async_change_filter",
+    )
+    platform.async_register_entity_service(
+        SERVICE_RESET,
+        {},
+        "async_reset",
     )
 
 
-class LitterRobotCleaner(LitterRobotControlEntity, VacuumEntity):
+class LitterRobotCleaner(LitterRobotControlEntity, StateVacuumEntity):
     """Litter-Robot "Vacuum" Cleaner."""
 
     @property
-    def supported_features(self) -> int:
+    def supported_features(self) -> VacuumEntityFeature:
         """Flag cleaner robot features that are supported."""
         return SUPPORT_LITTERROBOT
 
     @property
-    def state(self) -> str:
-        """Return the state of the cleaner."""
+    def activity(self) -> VacuumActivity | None:
+        """Return the activity of the cleaner."""
         switcher = {
-            LitterBoxStatus.CLEAN_CYCLE: STATE_CLEANING,
-            LitterBoxStatus.EMPTY_CYCLE: STATE_CLEANING,
-            LitterBoxStatus.CLEAN_CYCLE_COMPLETE: STATE_DOCKED,
-            LitterBoxStatus.CAT_SENSOR_TIMING: STATE_DOCKED,
-            LitterBoxStatus.DRAWER_FULL_1: STATE_DOCKED,
-            LitterBoxStatus.DRAWER_FULL_2: STATE_DOCKED,
-            LitterBoxStatus.READY: STATE_DOCKED,
-            LitterBoxStatus.CAT_SENSOR_INTERRUPTED: STATE_PAUSED,
-            LitterBoxStatus.OFF: STATE_OFF,
+            LitterBoxStatus.CLEAN_CYCLE: VacuumActivity.CLEANING,
+            LitterBoxStatus.EMPTY_CYCLE: VacuumActivity.CLEANING,
+            LitterBoxStatus.CLEAN_CYCLE_COMPLETE: VacuumActivity.DOCKED,
+            LitterBoxStatus.CAT_SENSOR_TIMING: VacuumActivity.DOCKED,
+            LitterBoxStatus.DRAWER_FULL_1: VacuumActivity.DOCKED,
+            LitterBoxStatus.DRAWER_FULL_2: VacuumActivity.DOCKED,
+            LitterBoxStatus.READY: VacuumActivity.DOCKED,
+            LitterBoxStatus.CAT_SENSOR_INTERRUPTED: VacuumActivity.PAUSED,
+            LitterBoxStatus.OFF: VacuumActivity.DOCKED,
         }
 
-        return switcher.get(self.robot.status, STATE_ERROR)
+        return switcher.get(self.robot.status, VacuumActivity.ERROR)
 
     @property
     def status(self) -> str:
@@ -139,10 +151,23 @@ class LitterRobotCleaner(LitterRobotControlEntity, VacuumEntity):
         """Set the wait time."""
         await self.perform_action_and_refresh(self.robot.set_wait_time, minutes)
 
+    async def async_change_filter(self) -> None:
+        """Reset the filter replacement counter (LR5 only)."""
+        if not is_lr5(self.robot):
+            return
+        await self.robot.change_filter()
+        self.coordinator.async_set_updated_data(True)
+
+    async def async_reset(self) -> None:
+        """Perform a remote reset (LR5 only)."""
+        if not is_lr5(self.robot):
+            return
+        await self.perform_action_and_refresh(self.robot.reset)
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return device specific state attributes."""
-        return {
+        attrs = {
             "clean_cycle_wait_time_minutes": self.robot.clean_cycle_wait_time_minutes,
             "is_sleeping": self.robot.is_sleeping,
             "sleep_mode_enabled": self.robot.sleep_mode_enabled,
@@ -150,3 +175,35 @@ class LitterRobotCleaner(LitterRobotControlEntity, VacuumEntity):
             "status_code": self.robot.status_code,
             "last_seen": self.robot.last_seen,
         }
+
+        if is_lr5(self.robot):
+            attrs.update(
+                {
+                    "litter_level_state": (
+                        self.robot.litter_level_state.value
+                        if self.robot.litter_level_state
+                        else None
+                    ),
+                    "hopper_status": (
+                        self.robot.hopper_status.value
+                        if self.robot.hopper_status
+                        else None
+                    ),
+                    "odometer_clean_cycles": self.robot.cycle_count,
+                    "odometer_empty_cycles": self.robot.odometer_empty_cycles,
+                    "odometer_filter_cycles": self.robot.odometer_filter_cycles,
+                    "odometer_power_cycles": self.robot.odometer_power_cycles,
+                    "scoops_saved_count": self.robot.scoops_saved_count,
+                    "next_filter_replacement_date": (
+                        self.robot.next_filter_replacement_date.isoformat()
+                        if self.robot.next_filter_replacement_date
+                        else None
+                    ),
+                    "privacy_mode": self.robot.privacy_mode,
+                    "is_gas_sensor_fault_detected": self.robot.is_gas_sensor_fault_detected,
+                    "is_usb_fault_detected": self.robot.is_usb_fault_detected,
+                    "is_hopper_removed": self.robot.is_hopper_removed,
+                }
+            )
+
+        return attrs

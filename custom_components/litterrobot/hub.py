@@ -28,6 +28,12 @@ class LitterRobotHub:
         async def _async_update_data() -> bool:
             """Update all device states from the Litter-Robot API."""
             await self.account.refresh_robots()
+            for pet in self.account.pets:
+                try:
+                    await pet.refresh()
+                    await pet.fetch_weight_history(limit=500)
+                except Exception:
+                    pass
             return True
 
         self.coordinator = DataUpdateCoordinator(
@@ -48,6 +54,10 @@ class LitterRobotHub:
                 password=self._data[CONF_PASSWORD],
                 load_robots=load_robots,
             )
+            try:
+                await self.account.load_pets()
+            except Exception as ex:
+                _LOGGER.warning("Unable to load pets: %s", ex)
             self.logged_in = True
             return self.logged_in
         except LitterRobotLoginException as ex:

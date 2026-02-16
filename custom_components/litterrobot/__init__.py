@@ -9,7 +9,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from .const import DOMAIN
 from .hub import LitterRobotHub
 
-PLATFORMS = ["sensor", "switch", "vacuum"]
+PLATFORMS = ["binary_sensor", "button", "number", "select", "sensor", "switch", "text", "time", "vacuum"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -24,7 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady from ex
 
     if hub.account.robots:
-        hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 

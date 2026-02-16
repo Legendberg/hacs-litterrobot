@@ -5,7 +5,7 @@
   "config_flow": true,
   "documentation": "https://github.com/natekspencer/hacs-litterrobot",
   "issue_tracker": "https://github.com/natekspencer/hacs-litterrobot/issues",
-  "requirements": ["pylitterbot==2021.8.0"],
+  "requirements": ["pylitterbot==2025.1.0b0"],
   "codeowners": ["@natekspencer"],
   "iot_class": "cloud_polling"
 }

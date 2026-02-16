@@ -2,6 +2,9 @@
   "name": "Litter-Robot",
   "render_readme": true,
   "domains": [
+    "binary_sensor",
+    "number",
+    "select",
     "sensor",
     "switch",
     "vacuum"
