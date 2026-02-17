@@ -17,13 +17,31 @@
             }
         }
     },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Notification Settings",
+                "description": "Configure push notifications for Litter-Robot events.",
+                "data": {
+                    "notify_service": "Notification service",
+                    "notify_events": "Events to notify on",
+                    "notify_warning": "Warning alerts (time-sensitive, breaks Focus modes)",
+                    "notify_critical": "Critical alerts (bypass Do Not Disturb)"
+                }
+            }
+        }
+    },
     "device_automation": {
         "trigger_type": {
             "clean_cycle_complete": "Clean cycle completed",
             "waste_drawer_full": "Waste drawer is full",
             "pet_visit": "Pet visited the litter box",
             "robot_online": "Robot came online",
-            "robot_offline": "Robot went offline"
+            "robot_offline": "Robot went offline",
+            "drawer_removed": "Waste drawer removed",
+            "bonnet_removed": "Bonnet removed",
+            "pinch_detected": "Pinch detected",
+            "motor_fault": "Motor fault detected"
         }
     }
 }

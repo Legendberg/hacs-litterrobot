@@ -22,6 +22,10 @@ TRIGGER_TYPES = {
     "robot_online",
     "robot_offline",
     "pet_visit",
+    "drawer_removed",
+    "bonnet_removed",
+    "pinch_detected",
+    "motor_fault",
 }
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
@@ -64,6 +68,10 @@ async def async_get_triggers(
             "waste_drawer_full",
             "robot_online",
             "robot_offline",
+            "drawer_removed",
+            "bonnet_removed",
+            "pinch_detected",
+            "motor_fault",
         }
 
     for trigger_type in trigger_types:

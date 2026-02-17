@@ -1,0 +1,4 @@
+pytest-homeassistant-custom-component>=0.13
+pytest-asyncio
+pytest-cov
+pylitterbot==2025.1.0b0
