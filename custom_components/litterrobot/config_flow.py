@@ -73,7 +73,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry):
         """Initialize options flow."""
-        self.config_entry = config_entry
+        self._entry = config_entry
+
+    @property
+    def config_entry(self):
+        """Return the config entry."""
+        return self._entry
 
     async def async_step_init(self, user_input=None):
         """Manage notification options."""
